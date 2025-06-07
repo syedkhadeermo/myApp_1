@@ -253,7 +253,7 @@ async def predict_ligand_binding(prediction_request: PredictionRequest):
         # Retrieve file metadata from database
         file_record = await db.h5ad_files.find_one({"analysis_id": prediction_request.analysis_id})
         if not file_record:
-            raise HTTPException(status_code=404, detail="Analysis ID not found")
+            raise HTTPException(status_code=404, detail="Analysis ID not found. Please upload an H5AD file first.")
         
         # Load the previously uploaded data
         adata = load_scrna_data(file_record["file_path"])
@@ -276,6 +276,9 @@ async def predict_ligand_binding(prediction_request: PredictionRequest):
         
         return prediction_result
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) as-is
+        raise
     except Exception as e:
         logger.error(f"Error in prediction: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
