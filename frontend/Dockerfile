@@ -1,7 +1,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm install -g npm@11.9.0 && npm ci --no-audit --no-fund
 COPY frontend/ ./
 ENV REACT_APP_BACKEND_URL=""
 RUN npm run build
