@@ -117,3 +117,8 @@ The protocol above is preserved verbatim. Current work replaces untrained random
 - Added a 10-minute upload retention sweep; existing startup/upload sweeps and immediate rejected-upload cleanup remain.
 - Clarified that baseline expression rankings are computed, not simulated ligand responses; pinned direct Python and frontend dependencies.
 - Follow-up verification: 8 backend tests passed (including queued completion, failure, and scheduled retention cleanup); frontend smoke test and production build passed. `npm ci` passed from the committed lockfile; Python dependency check passed.
+
+## 2026-10-08 polling and limits follow-up
+
+- Added frontend polling tests for queued → running → completed and failed outcomes after a reload, plus focused SMILES, H5AD shape/memory, early upload length, and job recovery/claim tests.
+- Local verification: 12 backend tests and 3 frontend tests passed; React production build completed. Full Docker runtime was not available in this workspace.

@@ -14,6 +14,7 @@ p { overflow-wrap: anywhere; } label { display: block; font-weight: 600; margin:
 input, select { width: 100%; min-height: 43px; padding: .55rem; border: 1px solid #8da4b1; border-radius: 7px; background: white; }
 form > button { margin-top: 1rem; } .access form { display: flex; align-items: end; flex-wrap: wrap; gap: .5rem; } .access label { width: 100%; margin: 0; } .access input { flex: 1; min-width: 200px; } small { color: #526977; }
 .warning, .notice { padding: .8rem 1rem; border-radius: 8px; background: #fff1d9; border-left: 4px solid #d38718; }
+.result-interpretation { padding: 1rem; border-radius: 8px; background: #fff1d9; border-left: 5px solid #bd7410; margin: 1rem 0; }.result-interpretation strong { font-size: 1.1rem; }.result-interpretation p { margin: .4rem 0 0; }.organ-status { padding: .8rem 1rem; border-radius: 8px; background: #eaf4f6; }
 .error { background: #ffe8e6; border-left: 4px solid #bc302d; padding: 1rem; border-radius: 6px; }
 .drop { border: 2px dashed #90a9b5; display: block; padding: 2rem; border-radius: 10px; cursor: pointer; text-align: center; }.drop.drag { border-color: #135d70; background: #eaf4f6; }.drop input { margin-bottom: .7rem; }
 .examples { display: flex; gap: .5rem; align-items: center; margin-top: .6rem; flex-wrap: wrap; }.examples button { padding: .3rem .7rem; }

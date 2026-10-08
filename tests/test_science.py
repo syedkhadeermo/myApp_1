@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / 'backend'))
 from app.science import inspect_dataset, summarize, validate_smiles, optional_gnn_score
+from app import science
 
 
 def test_baseline_ranking_is_deterministic_and_organ_filtered(tmp_path):
@@ -30,11 +31,31 @@ def test_smiles_validation_and_no_untrained_model():
     for value in ('not-a-smiles', '', 'C' * 301):
         with pytest.raises(ValueError):
             validate_smiles(value)
+    with pytest.raises(ValueError, match='heavy atoms'):
+        validate_smiles('C' * 101)
+    with pytest.raises(ValueError, match='1–300'):
+        validate_smiles(None)
 
 
 def test_shape_limit(tmp_path):
     data = ad.AnnData(X=np.zeros((2, 30001), dtype=np.float32))
     path = tmp_path / 'wide.h5ad'
     data.write_h5ad(path)
+    with pytest.raises(ValueError, match='Dataset needs'):
+        inspect_dataset(path)
+
+
+def test_dense_memory_guard(tmp_path, monkeypatch):
+    data = ad.AnnData(X=np.ones((2, 3), dtype=np.float64))
+    path = tmp_path / 'dense.h5ad'
+    data.write_h5ad(path)
+    monkeypatch.setattr(science, 'MAX_DENSE_WORKING_BYTES', 100)
+    with pytest.raises(ValueError, match='Dense expression matrix'):
+        inspect_dataset(path)
+
+
+def test_small_dataset_rejected(tmp_path):
+    path = tmp_path / 'tiny.h5ad'
+    ad.AnnData(X=np.zeros((1, 2))).write_h5ad(path)
     with pytest.raises(ValueError, match='Dataset needs'):
         inspect_dataset(path)
