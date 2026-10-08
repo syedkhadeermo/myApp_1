@@ -31,7 +31,7 @@ Open `http://127.0.0.1:8080` and enter `API_KEY` in the Access form. The web con
 
 ## Local development
 
-Use Python 3.11, Node 20, a MongoDB 7 instance and adequate RAM. Start MongoDB with `docker compose up -d mongo` after creating `.env`, or supply your own `MONGO_URL`. In one terminal:
+Use Python 3.11, Node 20.17+ with npm 11.9.0, a MongoDB 7 instance and adequate RAM. Start MongoDB with `docker compose up -d mongo` after creating `.env`, or supply your own `MONGO_URL`. In one terminal:
 
 ```sh
 python3.11 -m venv .venv
@@ -50,6 +50,7 @@ In a second terminal:
 ```sh
 cd frontend
 cp .env.example .env.local
+npm install -g npm@11.9.0
 npm ci
 npm start
 ```
