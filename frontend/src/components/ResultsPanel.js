@@ -4,7 +4,7 @@ export default function ResultsPanel({ result }) {
   const max = Math.max(...result.genes.map(g => g.variability), 0.001);
   return <section className="panel" aria-labelledby="results-title">
     <h2 id="results-title">3. Exploratory results</h2>
-    <p className="notice">{result.interpretation}</p>
+    <p className="notice"><strong>Research demo:</strong> These are baseline measurements from the uploaded cells. No ligand-induced gene effects or cures are simulated. {result.interpretation}</p>
     <div className="metrics">
       <div><strong>Binding score</strong><span>{result.binding_score ?? 'Unavailable'}</span></div>
       <div><strong>GNN ligand–organ score</strong><span>{result.ligand_organ_score?.value ?? 'No trained model'}</span></div>
