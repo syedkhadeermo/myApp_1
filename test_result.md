@@ -110,3 +110,10 @@ The protocol above is preserved verbatim. Current work replaces untrained random
 - 2026-10-08: backend unit/API tests: 5 passed on Python 3.12 in an isolated environment.
 - Frontend smoke test: 1 passed; React production bundle compiled successfully.
 - Compose YAML parsed successfully; full Docker build/runtime not exercised because Docker CLI/daemon is unavailable in this workspace.
+
+## 2026-10-08 follow-up
+
+- Added a Mongo-backed single-worker prediction queue with HTTP 202 submission and status polling, plus restart recovery and idempotent result writes.
+- Added a 10-minute upload retention sweep; existing startup/upload sweeps and immediate rejected-upload cleanup remain.
+- Clarified that baseline expression rankings are computed, not simulated ligand responses; pinned direct Python and frontend dependencies.
+- Follow-up verification: 8 backend tests passed (including queued completion, failure, and scheduled retention cleanup); frontend smoke test and production build passed. `npm ci` passed from the committed lockfile; Python dependency check passed.

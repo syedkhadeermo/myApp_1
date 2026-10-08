@@ -19,7 +19,9 @@ from pymongo import ASCENDING, DESCENDING
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
-from .science import CONTEXT, ORGANS, inspect_dataset, molecular_profile, optional_gnn_score, summarize, validate_smiles
+from .science import ORGANS, inspect_dataset, validate_smiles
+from .jobs import worker_loop
+from .storage import cleanup_expired_files, cleanup_loop
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s %(levelname)s %(name)s %(message)s')
@@ -66,10 +68,21 @@ def create_app(settings: Settings | None = None, db=None):
         await app.state.db.analyses.create_index('expires_at', expireAfterSeconds=0)
         await app.state.db.predictions.create_index([('analysis_id', ASCENDING), ('timestamp', DESCENDING)])
         await app.state.db.predictions.create_index('expires_at', expireAfterSeconds=0)
-        await cleanup(app)
+        await app.state.db.predictions.create_index('id', unique=True)
+        await app.state.db.jobs.create_index('job_id', unique=True)
+        await app.state.db.jobs.create_index([('status', ASCENDING), ('created_at', ASCENDING)])
+        await app.state.db.jobs.create_index('expires_at', expireAfterSeconds=0)
+        # Single worker process: recover a claim interrupted by a restart.
+        await app.state.db.jobs.update_many({'status': 'running'}, {'$set': {'status': 'queued'}})
+        cleanup_expired_files(settings)
+        app.state.worker = asyncio.create_task(worker_loop(app.state.db, settings))
+        app.state.cleanup_task = asyncio.create_task(cleanup_loop(settings))
         try:
             yield
         finally:
+            app.state.worker.cancel()
+            app.state.cleanup_task.cancel()
+            await asyncio.gather(app.state.worker, app.state.cleanup_task, return_exceptions=True)
             if mongo is not None:
                 mongo.close()
     app = FastAPI(title='scRNA-seq Ligand Exploration', version='1.0.0', lifespan=lifespan)
@@ -77,18 +90,6 @@ def create_app(settings: Settings | None = None, db=None):
     app.state.db = db
     app.state.settings = settings
     app.state.bucket = {}
-    app.state.analysis_lock = asyncio.Lock()
-
-    async def cleanup(app):
-        # TTL indexes delete metadata independently; sweep old files by mtime on startup and upload.
-        cutoff = time.time() - settings.retention_hours * 3600
-        for path in settings.upload_dir.glob('*.h5ad'):
-            try:
-                if path.stat().st_mtime < cutoff:
-                    path.unlink(missing_ok=True)
-            except OSError:
-                log.exception('Could not clean expired upload')
-
     async def authorize(request: Request, x_api_key: str | None = Header(default=None)):
         if not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key):
             raise HTTPException(401, 'Valid X-API-Key required')
@@ -105,7 +106,9 @@ def create_app(settings: Settings | None = None, db=None):
     async def health(request: Request):
         try:
             await request.app.state.db.command('ping')
-            return {'status': 'ok', 'database': 'connected', 'model': 'configured' if settings.model_checkpoint else 'unavailable'}
+            if request.app.state.worker.done():
+                raise RuntimeError('Job worker stopped')
+            return {'status': 'ok', 'database': 'connected', 'worker': 'running', 'model': 'configured' if settings.model_checkpoint else 'unavailable'}
         except Exception:
             return JSONResponse(status_code=503, content={'status': 'unavailable', 'database': 'disconnected'})
 
@@ -117,7 +120,7 @@ def create_app(settings: Settings | None = None, db=None):
     async def upload(file: UploadFile = File(...)):
         if not file.filename or not file.filename.lower().endswith('.h5ad'):
             raise HTTPException(400, 'Upload a .h5ad file')
-        await cleanup(app)
+        cleanup_expired_files(settings)
         analysis_id = str(uuid.uuid4())
         path = settings.upload_dir / f'{analysis_id}.h5ad'
         size, digest = 0, hashlib.sha256()
@@ -153,46 +156,44 @@ def create_app(settings: Settings | None = None, db=None):
         finally:
             await file.close()
 
-    @app.post('/api/predict', response_model=PredictionResponse, dependencies=[Depends(authorize)])
+    @app.post('/api/predict', status_code=202, dependencies=[Depends(authorize)])
     async def predict(payload: PredictionRequest):
         organ = payload.organ.strip().lower()
         if organ not in ORGANS:
             raise HTTPException(422, f'Organ must be one of: {", ".join(ORGANS)}')
         try:
-            smiles, mol = validate_smiles(payload.smiles.strip())
+            smiles, _ = validate_smiles(payload.smiles.strip())
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         record = await app.state.db.analyses.find_one({'analysis_id': str(payload.analysis_id), 'expires_at': {'$gt': datetime.now(timezone.utc)}})
         if record is None:
             raise HTTPException(404, 'Analysis not found or expired; upload again')
-        path = settings.upload_dir / f'{payload.analysis_id}.h5ad'
-        if not path.is_file():
+        if not (settings.upload_dir / f'{payload.analysis_id}.h5ad').is_file():
             raise HTTPException(410, 'Dataset file unavailable; upload again')
-        try:
-            if app.state.analysis_lock.locked():
-                raise HTTPException(429, 'Another analysis is running; retry shortly')
-            async with app.state.analysis_lock:
-                summary = await run_in_threadpool(summarize, path, organ)
-                gnn = await run_in_threadpool(optional_gnn_score, mol, organ, settings.model_checkpoint)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        except HTTPException:
-            raise
-        except Exception:
-            log.exception('Scientific analysis failed')
-            raise HTTPException(503, 'Scientific analysis unavailable; check dataset and model configuration')
-        now = datetime.now(timezone.utc)
-        result = PredictionResponse(
-            id=str(uuid.uuid4()), analysis_id=str(payload.analysis_id), smiles=smiles,
-            organ=organ, timestamp=now, genes=summary['genes'],
-            top_proteins=[g['gene'] for g in summary['genes'][:5]],
-            related_diseases=CONTEXT[organ], binding_score=None,
-            ligand_organ_score=gnn, molecular_profile=molecular_profile(mol),
-            n_cells_used=summary['n_cells_used'], organ_verified=summary['organ_verified'],
-            interpretation='Genes are ranked by baseline expression variability, not ligand response. Protein names are gene-symbol proxies. Disease names are organ context, not predicted cures. Binding requires a protein target and validated assay/model.',
-        )
-        await app.state.db.predictions.insert_one({**result.model_dump(mode='python'), 'expires_at': record['expires_at']})
-        return result
+        if await app.state.db.jobs.count_documents({'status': {'$in': ['queued', 'running']}}) >= 20:
+            raise HTTPException(429, 'Analysis queue is full; retry later')
+        job_id = str(uuid.uuid4())
+        await app.state.db.jobs.insert_one({
+            'job_id': job_id, 'analysis_id': str(payload.analysis_id),
+            'smiles': smiles, 'organ': organ, 'status': 'queued',
+            'created_at': datetime.now(timezone.utc), 'expires_at': record['expires_at'],
+        })
+        return {'job_id': job_id, 'status': 'queued'}
+
+    @app.get('/api/jobs/{job_id}', dependencies=[Depends(authorize)])
+    async def job_status(job_id: uuid.UUID):
+        job = await app.state.db.jobs.find_one({'job_id': str(job_id), 'expires_at': {'$gt': datetime.now(timezone.utc)}})
+        if job is None:
+            raise HTTPException(404, 'Job not found or expired')
+        answer = {'job_id': str(job_id), 'status': job['status']}
+        if job['status'] == 'failed':
+            answer['error'] = job.get('error', 'Analysis failed')
+        if job['status'] == 'completed':
+            result = await app.state.db.predictions.find_one({'id': str(job_id)})
+            if result is None:
+                raise HTTPException(503, 'Result is not available yet; retry shortly')
+            answer['result'] = PredictionResponse.model_validate(result).model_dump(mode='json')
+        return answer
 
     @app.get('/api/predictions/{analysis_id}', response_model=list[PredictionResponse], dependencies=[Depends(authorize)])
     async def history(analysis_id: uuid.UUID):

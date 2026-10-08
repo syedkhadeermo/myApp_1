@@ -4,7 +4,7 @@ WORKDIR /app
 COPY backend/requirements.txt backend/requirements-gnn.txt /app/
 ARG INSTALL_GNN=0
 RUN pip install --no-cache-dir -r requirements.txt \
-    && if [ "$INSTALL_GNN" = "1" ]; then pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements-gnn.txt; fi \
+    && if [ "$INSTALL_GNN" = "1" ]; then pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements-gnn.txt; fi \
     && useradd -r -u 10001 appuser && mkdir -p /data/uploads && chown -R appuser:appuser /data
 COPY backend/ /app/
 USER appuser

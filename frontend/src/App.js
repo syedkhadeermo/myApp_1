@@ -12,6 +12,7 @@ export default function App() {
   const [config, setConfig] = useState(null);
   const [analysis, setAnalysis] = useState(() => { try { return JSON.parse(sessionStorage.getItem('analysis') || 'null'); } catch { return null; } });
   const [result, setResult] = useState(null);
+  const [job, setJob] = useState(null);
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -23,6 +24,31 @@ export default function App() {
     if (!key || !analysis) return;
     api(`/predictions/${analysis.analysis_id}`, key).then(setHistory).catch(e => setError(e.message));
   }, [key, analysis]);
+  const jobId = job?.job_id;
+  useEffect(() => {
+    if (!key || !jobId) return undefined;
+    let active = true;
+    let timer;
+    async function poll() {
+      try {
+        const next = await api(`/jobs/${jobId}`, key);
+        if (!active) return;
+        if (next.status === 'completed') {
+          setResult(next.result);
+          setHistory(old => [next.result, ...old.filter(item => item.id !== next.result.id)]);
+          setJob(null);
+        } else if (next.status === 'failed') {
+          setError(next.error || 'Analysis failed');
+          setJob(null);
+        } else {
+          setJob(old => old ? { ...old, status: next.status } : null);
+          timer = setTimeout(poll, 1500);
+        }
+      } catch (e) { if (active) { setError(e.message); setJob(null); } }
+    }
+    timer = setTimeout(poll, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [key, jobId]);
   async function run(name, task) {
     setBusy(name); setError('');
     try { await task(); } catch (e) { setError(e.message || 'Unexpected error'); } finally { setBusy(''); }
@@ -37,16 +63,16 @@ export default function App() {
   }); }
   function predict(payload) { run('predict', async () => {
     const next = await api('/predict', key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    setResult(next); setHistory(old => [next, ...old]);
+    setResult(null); setJob(next);
   }); }
-  function reset() { sessionStorage.removeItem('analysis'); setAnalysis(null); setResult(null); setHistory([]); setError(''); }
+  function reset() { sessionStorage.removeItem('analysis'); setAnalysis(null); setResult(null); setHistory([]); setJob(null); setError(''); }
   return <div className="app min-h-screen"><header><div className="wrap mx-auto"><h1>scRNA-seq Ligand Explorer</h1><p>Inspect single-cell expression and ligand structure with honest model limits.</p></div></header>
     <main className="wrap mx-auto">
       <p className="warning">Research demo only. No predicted cures, validated binding affinities, or clinical conclusions.</p>
       <section className="panel access shadow-sm"><h2>Access</h2><form onSubmit={saveKey}><label htmlFor="key">API key</label><input id="key" type="password" autoComplete="off" value={draftKey} onChange={e => setDraftKey(e.target.value)} required placeholder="Enter your deployment API key" /><button>Connect</button></form><small>Key stays in this browser tab’s session storage. Use only on a trusted deployment.</small></section>
       {error && <div className="error" role="alert">{error}</div>}
       {key && config && <>
-        {!analysis ? <UploadPanel onUpload={upload} busy={!!busy} maxMb={config.max_upload_mb} /> : <><div className="toolbar"><span>Analysis {analysis.analysis_id}</span><button className="secondary" onClick={reset}>New upload</button></div><AnalysisForm key={analysis.analysis_id} onPredict={predict} busy={!!busy} analysis={analysis} organs={config.organs} /><ResultsPanel result={result} /><HistoryPanel items={history} onSelect={setResult} /></>}
+        {!analysis ? <UploadPanel onUpload={upload} busy={!!busy} maxMb={config.max_upload_mb} /> : <><div className="toolbar"><span>Analysis {analysis.analysis_id}</span><button className="secondary" onClick={reset}>New upload</button></div><AnalysisForm key={analysis.analysis_id} onPredict={predict} busy={!!busy || !!job} analysis={analysis} organs={config.organs} />{job && <p className="notice" role="status" aria-live="polite">Analysis {job.status}. You can wait here for the result.</p>}<ResultsPanel result={result} /><HistoryPanel items={history} onSelect={setResult} /></>}
       </>}
     </main></div>;
 }
