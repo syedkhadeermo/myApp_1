@@ -90,6 +90,18 @@ def create_app(settings: Settings | None = None, db=None):
     app.state.db = db
     app.state.settings = settings
     app.state.bucket = {}
+    @app.middleware('http')
+    async def upload_length_guard(request: Request, call_next):
+        if request.url.path == '/api/upload-h5ad' and request.method == 'POST' and request.headers.get('content-length'):
+            try:
+                length = int(request.headers['content-length'])
+            except ValueError:
+                return JSONResponse(status_code=400, content={'detail': 'Invalid Content-Length'})
+            # Multipart framing adds overhead; streaming below remains authoritative.
+            if length > settings.max_upload_mb * 1024 * 1024 + 1024 * 1024:
+                return JSONResponse(status_code=413, content={'detail': f'File exceeds {settings.max_upload_mb} MB limit'})
+        return await call_next(request)
+
     async def authorize(request: Request, x_api_key: str | None = Header(default=None)):
         if not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key):
             raise HTTPException(401, 'Valid X-API-Key required')

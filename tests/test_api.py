@@ -15,6 +15,7 @@ os.environ.setdefault('API_KEY', '0123456789abcdef0123456789abcdef')
 from app.api import create_app
 from app.config import Settings
 from app.storage import cleanup_expired_files
+from app.jobs import process_next_job
 
 KEY = '0123456789abcdef0123456789abcdef'
 
@@ -167,3 +168,34 @@ async def test_retention_timer_sweeps_without_new_upload(client, tmp_path, monke
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_early_content_length_guard(client, tmp_path):
+    async with client.router.lifespan_context(client):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client), base_url='http://test') as http:
+            response = await http.post('/api/upload-h5ad', headers={'X-API-Key': KEY, 'Content-Length': str(3 * 1024 * 1024)}, content=b'')
+            assert response.status_code == 413
+            assert not list(tmp_path.glob('*.h5ad'))
+
+
+@pytest.mark.asyncio
+async def test_job_claims_oldest_and_recovers_running_on_restart(client, tmp_path, monkeypatch):
+    from app import api as api_module
+    db = client.state.db
+    now = datetime.now(timezone.utc)
+    ids = ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']
+    for i, job_id in enumerate(ids):
+        await db.jobs.insert_one({'job_id': job_id, 'analysis_id': job_id, 'smiles': 'CCO', 'organ': 'liver',
+                                  'status': 'running' if i == 0 else 'queued', 'created_at': now, 'expires_at': now.replace(year=now.year + 1)})
+    hold = asyncio.Event()
+    async def paused_worker(*args):
+        await hold.wait()
+    monkeypatch.setattr(api_module, 'worker_loop', paused_worker)
+    async with client.router.lifespan_context(client):
+        assert [j['status'] for j in db.jobs.docs] == ['queued', 'queued']
+        # The oldest queued job is claimed, then marked failed when its dataset is unavailable.
+        assert await process_next_job(db, client.state.settings) is True
+        assert [j['status'] for j in db.jobs.docs] == ['failed', 'queued']
+        assert await process_next_job(db, client.state.settings) is True
+        assert await process_next_job(db, client.state.settings) is False

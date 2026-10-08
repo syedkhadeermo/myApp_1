@@ -4,6 +4,10 @@ A single-operator FastAPI, React/Tailwind, MongoDB and Scanpy research demo. Upl
 
 **Scientific boundary:** the app computes descriptive baseline gene variability from the uploaded data. It does not simulate ligand-induced expression changes or predict a cure. Protein names are gene-symbol proxies, the disease list is general organ context, and there are no inferred cures. Binding score is `null` because binding requires a specified protein target and validated assay/model. An operator may provide a separately trained, validated organ-specific GNN checkpoint for an experimental ligand–organ score; the UI labels it separately. This app is not for clinical decisions.
 
+## Limitations
+
+The GNN is completely optional; no trained checkpoint is provided. Without one, the app returns baseline gene summaries and molecular descriptors, not a ligand effect or binding prediction. Organ identity is only verified when the H5AD contains matching `obs['organ']` or `obs['tissue']` labels. The single-worker queue and shared API key are designed for one trusted operator, not public multi-user use.
+
 ## Architecture
 
 Browser → nginx (`/api/` proxy, static React) → FastAPI (API key, bounded upload, RDKit + Scanpy, optional GNN) → MongoDB (metadata, durable job queue, history). A single worker in the backend service claims jobs atomically and records results; queued/running jobs are recovered after a restart. H5AD bytes reside only in a private upload volume under a random UUID filename. Mongo holds metadata, SHA-256 and expiry. Rejected uploads are deleted immediately. Expired files are swept at startup, on new uploads, and every 10 minutes; Mongo TTL indexes expire metadata/jobs/history independently. Files remain until expiry so one upload can support several analyses. Back up the Mongo and upload volumes together if retaining data matters.
@@ -68,7 +72,7 @@ curl -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
 curl -H "X-API-Key: $API_KEY" http://localhost:8001/api/jobs/<job_id>
 ```
 
-The H5AD needs at least two cells and two genes, at most 20,000 cells, 30,000 genes, 20 million matrix entries and a nonnegative finite expression matrix. If `obs['organ']` or `obs['tissue']` is present, only matching cells are analyzed. Without annotations, organ identity is unverified. Numeric values are treated as expression input for library-size normalization and log1p; processed/log-transformed input may yield misleading summaries. No automatic batch correction or cell-type matching is performed.
+The H5AD needs at least two cells and two genes, at most 20,000 cells, 30,000 genes, 20 million matrix entries and a nonnegative finite expression matrix. Dense matrices also have a 512 MiB estimated working-memory ceiling (four float64-sized arrays); sparse storage avoids this dense check, but still needs available RAM. If `obs['organ']` or `obs['tissue']` is present, only matching cells are analyzed. Without annotations, organ identity is unverified. Numeric values are treated as expression input for library-size normalization and log1p; processed/log-transformed input may yield misleading summaries. No automatic batch correction or cell-type matching is performed.
 
 | Variable | Default | Purpose |
 |---|---|---|

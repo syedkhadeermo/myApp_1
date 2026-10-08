@@ -1,6 +1,7 @@
 """Exploratory expression summaries. No treatment or binding claims."""
 import math
 from pathlib import Path
+import h5py
 import numpy as np
 import scanpy as sc
 from rdkit import Chem, RDLogger
@@ -10,6 +11,7 @@ from scipy import sparse
 RDLogger.DisableLog('rdApp.error')  # Invalid confidential SMILES must not enter server logs.
 
 MAX_CELLS, MAX_GENES, MAX_ELEMENTS = 20_000, 30_000, 20_000_000
+MAX_DENSE_WORKING_BYTES = 512 * 1024 * 1024
 ORGANS = ('liver', 'lung', 'heart', 'brain', 'kidney', 'muscle', 'bone', 'skin', 'pancreas', 'stomach')
 CONTEXT = {
     'liver': ['hepatitis', 'cirrhosis'], 'lung': ['asthma', 'COPD'],
@@ -33,6 +35,10 @@ def inspect_dataset(path):
         n, g = adata.shape
         if n < 2 or g < 2 or n > MAX_CELLS or g > MAX_GENES or n * g > MAX_ELEMENTS:
             raise ValueError(f'Dataset needs 2–{MAX_CELLS} cells, 2–{MAX_GENES} genes, and at most {MAX_ELEMENTS} entries')
+        # Scanpy normalization and ranking make multiple dense arrays. Check the
+        # on-disk dtype before reading X into memory; sparse storage stays sparse.
+        if isinstance(adata.X, h5py.Dataset) and n * g * max(adata.X.dtype.itemsize, 8) * 4 > MAX_DENSE_WORKING_BYTES:
+            raise ValueError('Dense expression matrix is too large for this demo; use a smaller or sparse H5AD')
         return int(n), int(g)
     finally:
         adata.file.close()
