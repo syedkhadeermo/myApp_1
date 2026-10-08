@@ -1,0 +1,5 @@
+# Optional localhost-only Mongo port for host-based backend development.
+services:
+  mongo:
+    ports:
+      - "127.0.0.1:27017:27017"

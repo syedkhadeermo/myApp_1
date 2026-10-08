@@ -101,3 +101,12 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## Current implementation (2026-10-08)
+
+The protocol above is preserved verbatim. Current work replaces untrained random predictions with a deterministic baseline expression summary, bounded H5AD storage, authenticated API, Mongo expiry/history, componentized React UI, separate API/web/Mongo Compose services, and automated checks. Scientific ligand effect and binding remain unvalidated/unavailable; see README for limits.
+
+## Verification record
+
+- 2026-10-08: backend unit/API tests: 5 passed on Python 3.12 in an isolated environment.
+- Frontend smoke test: 1 passed; React production bundle compiled successfully.
+- Compose YAML parsed successfully; full Docker build/runtime not exercised because Docker CLI/daemon is unavailable in this workspace.
