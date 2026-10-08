@@ -1,0 +1,53 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: app
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "-u", "app", "-p", "${MONGO_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_GNN: ${INSTALL_GNN:-0}
+    restart: unless-stopped
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY in .env}
+      MONGO_URL: mongodb://app:${MONGO_PASSWORD}@mongo:27017/ligand_demo?authSource=admin
+      DB_NAME: ligand_demo
+      UPLOAD_DIR: /data/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      RETENTION_HOURS: ${RETENTION_HOURS:-24}
+      MODEL_CHECKPOINT: ${MODEL_CHECKPOINT:-}
+      CORS_ORIGINS: http://localhost:8080
+    volumes:
+      - upload_data:/data/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  mongo_data:
+  upload_data:

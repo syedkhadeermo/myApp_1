@@ -1,0 +1,3 @@
+-r requirements.txt
+# Install CPU PyTorch first using the official PyTorch CPU wheel index, then:
+torch-geometric>=2.4,<3
